@@ -1,0 +1,13 @@
+# evals/prompt-files.txt: the files that decide how the bot behaves.
+# Repo-relative paths, one per line, files only (no directories).
+# Changing any of them, or this list, needs a passing eval before merge.
+api/assistant.js
+api/_lib/prompt.js
+api/_lib/tools.js
+web/assistant.js
+# The eval itself and the CI workflow: weakening the cases is a behavior change too.
+tests/eval.mjs
+.github/workflows/eval-gate.yml
+# If the model or provider comes from an environment variable, the gate cannot
+# see it change: pin it in a listed file instead (or record it in the receipt
+# and check it at deploy time).

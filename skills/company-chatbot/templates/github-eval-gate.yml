@@ -1,0 +1,48 @@
+# .github/workflows/eval-gate.yml: CI form of the chatbot eval gate.
+# On every pull request, if the diff touches a file listed in
+# evals/prompt-files.txt (or the list itself), run the eval suite against the
+# PR's code and fail the check when it fails. Make "eval-gate" a required
+# check on the default branch so nothing merges around it.
+# Secrets: provider key(s) and a test account with realistic permissions.
+# List the eval harness, its cases and THIS workflow file in evals/prompt-files.txt
+# so weakening the eval also triggers it, and protect them with CODEOWNERS.
+name: eval-gate
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  eval-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Did the PR change chatbot behavior files?
+        id: touched
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          list=evals/prompt-files.txt
+          if [ -f "$list" ] && head -c3 "$list" | grep -q $'\xef\xbb\xbf'; then echo "$list starts with a UTF-8 BOM"; exit 1; fi
+          norm() { sed 's/\r$//;s/^[[:space:]]*//;s/[[:space:]]*$//;s#^\./##' | grep -v '^#' | grep -v '^$' || true; }
+          paths="$( { [ -f "$list" ] && norm < "$list"; git show "$base:$list" 2>/dev/null | norm; echo "$list"; } | sort -u)"
+          changed="$(git diff --no-renames --name-only -z "$base" HEAD | tr '\0' '\n')"
+          if printf '%s\n' "$changed" | grep -Fxq -f <(printf '%s\n' "$paths"); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.touched.outputs.run == 'true'
+        with:
+          node-version: 20
+      - name: Run the eval suite
+        if: steps.touched.outputs.run == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EVAL_TEST_EMAIL: ${{ secrets.EVAL_TEST_EMAIL }}
+          EVAL_TEST_PASSWORD: ${{ secrets.EVAL_TEST_PASSWORD }}
+          EVAL_RECEIPT_DIR: ${{ runner.temp }}/evals
+        # Replace with the repo's eval command. It must exit non-zero on any failed case.
+        run: node tests/eval.mjs
